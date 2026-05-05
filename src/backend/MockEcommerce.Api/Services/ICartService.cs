@@ -25,6 +25,14 @@ public interface ICartService
     CartItem? GetByProductId(int productId);
 
     /// <summary>
+    /// Replaces the quantity of an existing cart line.
+    /// </summary>
+    /// <param name="productId">The product ID whose line should be updated.</param>
+    /// <param name="quantity">The new quantity (caller is responsible for range validation).</param>
+    /// <returns>The updated cart item, or <c>null</c> if no line exists for the product.</returns>
+    CartItem? UpdateQuantity(int productId, int quantity);
+
+    /// <summary>
     /// Removes a cart item by product ID.
     /// </summary>
     /// <param name="productId">The product ID to remove.</param>
