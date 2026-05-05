@@ -1,6 +1,13 @@
 # PLAN — Implementing the Cart Feature
 
-Sequenced implementation plan derived from `SPEC.md`. Order is **bottom-up**: shared models → service → endpoints → backend tests → frontend API → hook → UI → frontend tests → manual QA. Each step lists the exact files touched and a one-line acceptance check. Earlier steps are independently mergeable.
+Sequenced implementation plan derived from `SPEC.md`.
+
+**Dependency order (strict):**
+**models / DTOs / constants → service interface → service implementation → API endpoints (GET first, then mutations) → backend tests → frontend API client → frontend hook → frontend components → frontend tests → manual QA.**
+
+Each layer depends only on the layer above it; tests for each tier come immediately after the implementation for that tier so red/green cycles stay short. Within Phase 4 specifically, **`GET /api/cart` is implemented first** (Step 4.1) because every other endpoint is verified end-to-end by re-issuing a GET and inspecting the resulting array.
+
+Each step lists the exact files touched and a one-line acceptance check. Earlier steps are independently mergeable.
 
 Tech reminders: backend = .NET 10 Minimal API + xUnit; frontend = React 19 + Vite 8 + Vitest. `npm test` (root) runs Vitest; `dotnet test` (in `test/backend/MockEcommerce.Api.Tests`) runs xUnit. `MAX_QTY = 5`.
 
@@ -40,8 +47,21 @@ Tech reminders: backend = .NET 10 Minimal API + xUnit; frontend = React 19 + Vit
 
 ## Phase 4 — Backend: implement endpoint handlers + register PUT
 
-**Step 4.1 — `GetCart`**
-- Replace `throw` with `TypedResults.Ok(cartService.GetAll());` (returns 200 + `[]` for empty cart).
+> **Sequencing note:** `GetCart` (Step 4.1) is implemented and verified **before any mutating endpoint**. It is the foundation: every later step (`AddToCart`, `UpdateQuantity`, `RemoveFromCart`, `ClearCart`) is verified by calling `GET /api/cart` and inspecting the resulting state. Skipping or deferring it leaves the rest of Phase 4 untestable end-to-end.
+
+**Step 4.1 — `GetCart` (`GET /api/cart`) — implement first**
+- File: `src/backend/MockEcommerce.Api/Endpoints/CartEndpoints.cs`, method `GetCart`.
+- Replace `throw new NotImplementedException();` with:
+  ```csharp
+  return TypedResults.Ok(cartService.GetAll());
+  ```
+- Behavior: always returns **200 OK**. Body is a JSON array of `CartItem` objects (`[]` when the cart is empty — never 404). Confirms SPEC §4.1.
+- Route is already registered (`group.MapGet("/", GetCart)` exists from the stub) — no routing change required.
+- ✅ Smoke test (with `dotnet run`):
+  ```bash
+  curl -s http://localhost:5063/api/cart   # → []
+  ```
+- ✅ This step unblocks every subsequent endpoint: `AddToCart`, `UpdateQuantity`, `RemoveFromCart`, and `ClearCart` are all verified by re-issuing `GET /api/cart` and inspecting the array returned. Without it, Phase 4 changes can only be inspected via internals.
 
 **Step 4.2 — `AddToCart`**
 - Validate `request.Quantity >= 1` and `<= MAX_QTY` → 400 ValidationProblem on failure (per SPEC §5).
@@ -174,9 +194,14 @@ All under `test/frontend/`. Mock `../../src/frontend/src/api` per existing patte
 **Step 10.1 — Smoke-test against running stack**
 - Terminal A: `cd src/backend/MockEcommerce.Api && dotnet run`.
 - Terminal B: `npm --workspace frontend run dev`.
+- **First, verify `GET /api/cart` works in isolation** (the verification anchor for everything else):
+  ```bash
+  curl -s http://localhost:5063/api/cart            # → []
+  ```
+  Then after every mutation in the steps below, re-issue the GET and confirm the body matches expectations.
 - Open `http://localhost:5173`.
 - Steps:
-  1. Add Wireless Headphones × 5 (one click at a time). 6th attempt → error toast says `"Cannot exceed 5..."` and qty stays at 5.
+  1. Add Wireless Headphones × 5 (one click at a time). 6th attempt → error toast says `"Cannot exceed 5..."` and qty stays at 5. Confirm with `curl /api/cart` → single line, qty 5.
   2. Open drawer; verify 5 × $79.99 = $399.95 line total and subtotal = $399.95.
   3. Decrement to 1 via `−`; subtotal = $79.99.
   4. Add Yoga Mat × 2; subtotal = $79.99 + $69.98 = $149.97.
